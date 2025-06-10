@@ -1,16 +1,24 @@
 import dotenv from "dotenv";
 import connectDB from "./db/index.js";
-import { DB_NAME } from "./constants.js";
 dotenv.config({
     path: './.env'
 });
-const startServer = async () => {
-  try {
-    await connectDB();
-    console.log("✅ MongoDB connection established");
-  } catch (err) {
-    console.error("❌ Failed to start server:", err.message);
-  }
+
+const startServer = () => {
+  connectDB()
+  .then(() => {
+    app.on("error", (error) => {
+        console.log(`❌ Server error: ${error.message}`);
+        process.exit(1);
+    });
+    app.listen(process.env.PORT, () => {
+        console.log(`Server is live at port : ${process.env.PORT}`);
+    });
+  })
+  .catch((error) => {
+      console.error(`❌ Failed to connect to the database: ${error.message}`);
+      process.exit(1);
+  });
 };
 
 startServer();
