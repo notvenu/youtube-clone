@@ -6,7 +6,7 @@ const app = express()
 
 //Config to access cross origin data
 app.use(cors({
-    orgin: process.env.CORS_ORIGIN,
+    origin: process.env.CORS_ORIGIN,
     credentials: true,
 }))
 //File intake Config
@@ -17,5 +17,11 @@ app.use(express.urlencoded({
 app.use(express.static("public"))//To store data publicly avaliable to anyone
 
 app.use(cookieParser())
+
+//Routes
+import userRouter from "./routes/user.routes.js"
+
+//Routes Declaration
+app.use("/api/v1/users", userRouter)
 
 export { app }
