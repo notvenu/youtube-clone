@@ -4,6 +4,7 @@ import { apiResponse } from "../utils/apiResponse.util.js"
 import { User } from "../models/user.model.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.util.js"
 
+//User Registration
 const registerUser = asyncHandler(async (req, res) => {
     const { userName, fullName, email, password } = req.body
     // Check for empty fields
@@ -30,27 +31,24 @@ const registerUser = asyncHandler(async (req, res) => {
     if (!passwordRegex.test(password)) {
         throw new apiError(400, "Password must be at least 6 characters and include at least one letter and one number")
     }
-    // If all validations pass
-    res.status(200).json({
-        success: true,
-        message: "All validations passed ✅"
-    })
     //Checking User Existance
-    const existedUser =User.findOne({
+    const existedUser = await User.findOne({
         $or: [{ userName }, { email }]
     })
     if (existedUser){
         throw new apiError(409, "User with this username or email already exists")
     }
     //Uploading and checking Avatar and CoverImage
-    const avatarLocalPath = req.files?.avatar[0]?.path
-    const coverImageLocalPath = req.files?.coverImage[0]?.path
-    if(!avatarLocalPath){
-        throw new apiError(400, "Avatar image is required")
+    const avatarLocalPath = req.files && req.files.avatar && req.files.avatar[0] && req.files.avatar[0].path;
+    const coverImageLocalPath = req.files && req.files.coverImage && req.files.coverImage[0] && req.files.coverImage[0].path;
+    if (!avatarLocalPath) {
+        throw new apiError(400, "Avatar image is required");
     }
     const avatar = await uploadOnCloudinary(avatarLocalPath)
-    const coverImage = await uploadOnCloudinary(coverImageLocalPath)
-    if(!avatar){
+    const coverImage = coverImageLocalPath
+    ? await uploadOnCloudinary(coverImageLocalPath)
+    : { url: "" }
+    if(!avatar?.url){
         throw new apiError(400, "Avatar image is required")
     }
     //Creating User and Adding to DB
@@ -69,7 +67,7 @@ const registerUser = asyncHandler(async (req, res) => {
     if(!createdUser){
         throw new apiError(500, "User creation failed")
     }
-    //Seding Succesfull User Creation
+    //Sending Succesfull User Creation
     return res.status(201).json(
         new apiResponse(200, createdUser, "User created successfully")
     )
