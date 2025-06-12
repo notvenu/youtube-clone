@@ -14,8 +14,9 @@ app.use(express.json({limit: '16kb'}))
 app.use(express.urlencoded({
     extended: true,limit: '16kb'
 }))
-app.use(express.static("public"))//To store data publicly avaliable to anyone
-
+//To store data publicly avaliable to anyone
+app.use(express.static("public"))
+//To send and get cookies
 app.use(cookieParser())
 
 //Routes
