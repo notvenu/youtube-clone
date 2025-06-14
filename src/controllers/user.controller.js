@@ -282,7 +282,6 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     if(!avatarLocalPath) {
         throw new apiError(400, "Avatar image is required.")
     }
-    
     // Delete old avatar if exists
     if (req.user?.avatar) {
         try {
@@ -291,7 +290,6 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
             console.error("Error deleting old avatar:", error)
         }
     }
-    
     const avatar = await uploadOnCloudinary(avatarLocalPath)
     if(!avatar.url){
         throw new apiError(400, "Avatar image upload failed.")
@@ -304,7 +302,7 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
             }
         },
         {new: true}
-    ).select("-password -refreshToken -watchHistory")
+    ).select("-userName -fullName -email -password -refreshToken -watchHistory")
 
     return res.status(200).json(
         new apiResponse(
@@ -321,7 +319,6 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     if(!coverImageLocalPath) {
         throw new apiError(400, "Cover image is required.")
     }
-    
     // Delete old cover image if exists
     if (req.user?.coverImage) {
         try {
@@ -330,7 +327,6 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
             console.error("Error deleting old cover image:", error)
         }
     }
-    
     const coverImage = await uploadOnCloudinary(coverImageLocalPath)
     if(!coverImage.url){
         throw new apiError(400, "Cover image upload failed.")
