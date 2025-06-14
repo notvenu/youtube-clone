@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.util.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
 import { User } from "../models/user.model.js"
-import { uploadOnCloudinary } from "../utils/cloudinary.util.js"
+import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.util.js"
 import jwt, { decode } from "jsonwebtoken"
 import mongoose from "mongoose"
 
@@ -21,11 +21,11 @@ const generateAccessAndRefereshTokens = async(userId) =>{
 
         return {accessToken, refreshToken}
 
-
     } catch (error) {
         throw new apiError(500, "Something went wrong while generating referesh and access token")
     }
 }
+
 //User Registration
 const registerUser = asyncHandler(async (req, res) => {
     const { userName, fullName, email, password } = req.body
@@ -63,21 +63,19 @@ const registerUser = asyncHandler(async (req, res) => {
     //Uploading and checking Avatar and CoverImage
     const avatarLocalPath = req.files && req.files.avatar && req.files.avatar[0] && req.files.avatar[0].path;
     const coverImageLocalPath = req.files && req.files.coverImage && req.files.coverImage[0] && req.files.coverImage[0].path;
-    if (!avatarLocalPath) {
-        throw new apiError(400, "Avatar image is required");
-    }
-    const avatar = await uploadOnCloudinary(avatarLocalPath)
+    
+    const avatar = avatarLocalPath 
+        ? await uploadOnCloudinary(avatarLocalPath)
+        : { url: "" }
     const coverImage = coverImageLocalPath
-    ? await uploadOnCloudinary(coverImageLocalPath)
-    : { url: "" }
-    if(!avatar?.url){
-        throw new apiError(400, "Avatar image is required")
-    }
+        ? await uploadOnCloudinary(coverImageLocalPath)
+        : { url: "" }
+    
     //Creating User and Adding to DB
     const user = await User.create({
         userName,
         fullName,
-        avatar: avatar.url,
+        avatar: avatar.url || "",
         coverImage: coverImage.url || "",
         email,
         password,
@@ -94,6 +92,7 @@ const registerUser = asyncHandler(async (req, res) => {
         new apiResponse(200, createdUser, "User created successfully")
     )
 })
+
 //User Login
 const loginUser = asyncHandler(async (req, res) =>{
     const {email, userName, password} = req.body
@@ -131,6 +130,7 @@ const loginUser = asyncHandler(async (req, res) =>{
         )
     )
 })
+
 //User Logout
 const logoutUser = asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(
@@ -152,6 +152,7 @@ const logoutUser = asyncHandler(async (req, res) => {
         new apiResponse(200, null, "User logged out successfully")
     )
 })
+
 //Refreshing Access Token
 const refreshAccessToken = asyncHandler(async (req, res) => {
     const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
@@ -161,7 +162,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     try {
         const decodedToken = jwt.verify(
             incomingRefreshToken,
-            process.env.ACCESS_TOKEN_SECRET,
+            process.env.REFRESH_TOKEN_SECRET,
         )
         const user = await User.findById(decodedToken._id)
         if(!user){
@@ -174,13 +175,13 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
             httpOnly: true,
             secure: true
         }
-        const {accessToken, newRefreshToken} = await generateAccessAndRefereshTokens(user._id)
+        const {accessToken, refreshToken: newRefreshToken} = await generateAccessAndRefereshTokens(user._id)
         return res.status(200).cookie("accessToken", accessToken, options).cookie("refreshToken", newRefreshToken, options).json (
             new apiResponse (
                 200,
                 {
                     accessToken,
-                    newRefreshToken
+                    refreshToken: newRefreshToken
                 },
                 "Access token refreshed successfully."
             )
@@ -190,6 +191,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         throw new apiError(401, "Invalid refresh token.")
     }
 })
+
 //Update Password
 const changeCurrentPassword = asyncHandler(async (req, res) => {
     const {oldPassword, newPassword, confirmPassword} = req.body
@@ -214,12 +216,13 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
     user.password = newPassword
     await user.save({validateBeforeSave: false})
     return res.status(200).json(
-        new apiError(
+        new apiResponse(
             200,
             {},
             "Password changed successfully."
         ))
 })
+
 //Search User
 const getCurrentUser = asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select("-password -refreshToken -watchHistory")
@@ -230,12 +233,29 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         new apiResponse(200, user, "Current user fetched successfully")
     )
 })
+
 //Update Text User Data
 const updateAccountDetails = asyncHandler(async (req, res) => {
     const {fullName, email, userName} = req.body
     if( !(fullName || email || userName) ) {
         throw new apiError(400, "At least one field is required to update")
     }
+
+    // Check if email or username already exists (if they're being updated)
+    if (email && email !== req.user.email) {
+        const emailExists = await User.findOne({ email })
+        if (emailExists) {
+            throw new apiError(409, "Email already exists")
+        }
+    }
+    
+    if (userName && userName !== req.user.userName) {
+        const userNameExists = await User.findOne({ userName })
+        if (userNameExists) {
+            throw new apiError(409, "Username already exists")
+        }
+    }
+
     const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
@@ -247,6 +267,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
         },
         {new: true}
     ).select("-password -refreshToken -watchHistory")
+    
     if (!user) {
         throw new apiError(404, "User not found")
     }
@@ -254,17 +275,29 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
         new apiResponse(200, user, "User details updated successfully")
     )
 })
+
 //Update Avatar
 const updateUserAvatar = asyncHandler(async (req, res) => {
     const avatarLocalPath = req.file?.path
     if(!avatarLocalPath) {
         throw new apiError(400, "Avatar image is required.")
     }
+    
+    // Delete old avatar if exists
+    if (req.user?.avatar) {
+        try {
+            await deleteFromCloudinary(req.user.avatar)
+        } catch (error) {
+            console.error("Error deleting old avatar:", error)
+        }
+    }
+    
     const avatar = await uploadOnCloudinary(avatarLocalPath)
     if(!avatar.url){
         throw new apiError(400, "Avatar image upload failed.")
     }
-    await User.findByIdAndUpdate(req.user?._id,
+    
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,
         {
             $set: {
                 avatar: avatar?.url
@@ -276,22 +309,34 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new apiResponse(
             200, 
-            {avatar: avatar.url}, 
+            updatedUser, 
             "User avatar updated successfully"
         )
     )
 })
+
 //Update CoverImage
 const updateUserCoverImage = asyncHandler(async (req, res) => {
     const coverImageLocalPath = req.file?.path
     if(!coverImageLocalPath) {
         throw new apiError(400, "Cover image is required.")
     }
+    
+    // Delete old cover image if exists
+    if (req.user?.coverImage) {
+        try {
+            await deleteFromCloudinary(req.user.coverImage)
+        } catch (error) {
+            console.error("Error deleting old cover image:", error)
+        }
+    }
+    
     const coverImage = await uploadOnCloudinary(coverImageLocalPath)
     if(!coverImage.url){
         throw new apiError(400, "Cover image upload failed.")
     }
-    await User.findByIdAndUpdate(req.user?._id,
+    
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,
         {
             $set: {
                 coverImage: coverImage?.url
@@ -303,11 +348,70 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new apiResponse(
             200, 
-            {coverImage: coverImage.url}, 
+            updatedUser, 
             "User cover image updated successfully"
         )
     )
 })
+
+//Delete Avatar
+const deleteUserAvatar = asyncHandler(async(req, res) => {
+    if(!req.user?.avatar) {
+        throw new apiError(404, "Avatar not found")
+    }
+    try {
+        await deleteFromCloudinary(req.user?.avatar)
+    } catch (error) {
+        throw new apiError(500, "Error deleting avatar from cloud storage")
+    }
+    
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,
+        {
+            $unset: {
+                avatar: ""
+            }
+        },
+        {new: true}
+    ).select("-password -refreshToken -watchHistory")
+    
+    return res.status(200).json(
+        new apiResponse(
+            200, 
+            updatedUser, 
+            "User avatar deleted successfully."
+        )
+    ) 
+})
+
+//Delete User Cover Image
+const deleteUserCoverImage = asyncHandler(async(req, res) => {
+    if(!req.user?.coverImage) {
+        throw new apiError(404, "Cover Image not found")
+    }
+    try {
+        await deleteFromCloudinary(req.user?.coverImage)
+    } catch (error) {
+        throw new apiError(500, "Error deleting cover image from cloud storage")
+    }
+    
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,
+        { 
+            $unset: { 
+                coverImage: "" 
+            } 
+        },
+        { new: true }
+    ).select("-password -watchHistory -refreshToken")
+
+    return res.status(200).json(
+        new apiResponse(
+            200, 
+            updatedUser, 
+            "User cover image deleted successfully."
+        )
+    ) 
+})
+
 //Get user profile , subscriberscount and subscribedto count
 const getUserChannelProfile = asyncHandler(async (req, res) => {
     const {userName} = req.params
@@ -322,7 +426,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         },
         {
             $lookup: {
-                from: "subcriptions",
+                from: "subscriptions",
                 localField: "_id",
                 foreignField: "channel",
                 as: "subscribers"
@@ -330,7 +434,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         }, 
         {
            $lookup: {
-                from: "subcriptions",
+                from: "subscriptions",
                 localField: "_id",
                 foreignField: "subscriber",
                 as: "subscribedTo"
@@ -339,7 +443,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         {
             $addFields: {
                 subscribersCount: {
-                    $size: "$subcribers"
+                    $size: "$subscribers"
                 },
                 channelsSubscribedToCount: {
                     $size: "$subscribedTo"
@@ -361,7 +465,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
                 coverImage: 1,
                 subscribersCount: 1,
                 channelsSubscribedToCount: 1,
-                isSubscribed,
+                isSubscribed: 1
             }
         }
     ])
@@ -372,6 +476,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         new apiResponse(200, channel[0], "Channel profile fetched successfully.")
     )
 })
+
 //Get User Watch History
 const getUserWatchHistory =  asyncHandler(async (req, res) => {
     const user = await User.aggregate([
@@ -422,4 +527,39 @@ const getUserWatchHistory =  asyncHandler(async (req, res) => {
     )
 })
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails, updateUserAvatar, updateUserCoverImage, getUserChannelProfile, getUserWatchHistory }
+const deleteUserAccount = asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user?._id)
+    if (!user) {
+        throw new apiError(404, "User not found")
+    }
+    
+    // Delete avatar if exists
+    if (user.avatar) {
+        try {
+            await deleteFromCloudinary(user.avatar)
+        } catch (error) {
+            console.error("Error deleting avatar from cloud storage:", error)
+        }
+    }
+    
+    // Delete cover image if exists
+    if (user.coverImage) {
+        try {
+            await deleteFromCloudinary(user.coverImage)
+        } catch (error) {
+            console.error("Error deleting cover image from cloud storage:", error)
+        }
+    }
+    
+    await user.deleteOne()
+
+    return res.status(200).json(
+        new apiResponse(
+            200,
+            {},
+            "User account deleted successfully."
+        )
+    )
+})
+
+export { registerUser, loginUser, logoutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails, updateUserAvatar, updateUserCoverImage, deleteUserAvatar, deleteUserCoverImage, getUserChannelProfile, getUserWatchHistory, deleteUserAccount }
