@@ -19,7 +19,7 @@ router.route("/update-cover-image").patch(verifyJWT, upload.single("coverImage")
 router.route("/delete-avatar").patch(verifyJWT, deleteUserAvatar)
 router.route("/delete-cover-image").patch(verifyJWT, deleteUserCoverImage)
 router.route("/c/:userName").get(verifyJWT, getUserChannelProfile)
-router.route("/watch-history".get(verifyJWT, getUserWatchHistory))
+router.route("/watch-history").get(verifyJWT, getUserWatchHistory)
 router.route("/delete-account").patch(verifyJWT, deleteUserAccount)
 
 
