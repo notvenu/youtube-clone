@@ -3,7 +3,7 @@ import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
 import { User } from "../models/user.model.js"
 import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.util.js"
-import jwt, { decode } from "jsonwebtoken"
+import jwt from "jsonwebtoken"
 import mongoose from "mongoose"
 
 //Generate Access and Refresh Token
