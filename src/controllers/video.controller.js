@@ -2,7 +2,7 @@ import mongoose, { isValidObjectId } from "mongoose"
 import { Video } from "../models/video.model.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
-import { asyncHandler } from "../utils/asyncHandler.js"
+import { asyncHandler } from "../utils/asyncHandler.util.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import { deleteFromCloudinary } from "../utils/cloudinary.js"
 

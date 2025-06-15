@@ -3,33 +3,32 @@ import { Video } from "../models/video.model.js"
 import { Comment } from "../models/comment.model.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
-import { asyncHandler } from "../utils/asyncHandler.js"
-import { apiError } from "../utils/apiError.util.js"
+import { asyncHandler } from "../utils/asyncHandler.util.js"
 
 const getVideoComments = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 10, query, sortBy, sortType, userId, videoId} = req.query
+    const { page = 1, limit = 10, query, sortBy, sortType, userId, videoId } = req.query
     const filter = {}
-    // Filter by video
     if (videoId) {
         if (!isValidObjectId(videoId)) {
             throw new apiError(400, "Invalid video ID")
         }
         filter.video = videoId
     }
-    // Filter by user
     if (userId) {
         if (!isValidObjectId(userId)) {
             throw new apiError(400, "Invalid user ID")
         }
         filter.owner = userId
     }
-    // Text search on comment content
     if (query) {
         filter.content = { $regex: query, $options: "i" }
     }
-    // Sorting logic
     const sort = {}
+    const allowedSortFields = ['createdAt', 'updatedAt', 'content']
     if (sortBy) {
+        if (!allowedSortFields.includes(sortBy)) {
+            throw new apiError(400, `Invalid sort field. Allowed fields: ${allowedSortFields.join(', ')}`)
+        }
         if (sortType === "asc" || sortType === "desc") {
             sort[sortBy] = sortType === "asc" ? 1 : -1
         } else {
@@ -38,19 +37,33 @@ const getVideoComments = asyncHandler(async (req, res) => {
     } else {
         sort.createdAt = -1
     }
-    // Pagination options
+    const pageNum = parseInt(page, 10)
+    const limitNum = parseInt(limit, 10)
+    if (pageNum < 1) {
+        throw new apiError(400, "Page number must be greater than 0")
+    }
+    if (limitNum < 1 || limitNum > 100) {
+        throw new apiError(400, "Limit must be between 1 and 100")
+    }
     const options = {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page: pageNum,
+        limit: limitNum,
         sort,
         populate: {
             path: "owner",
-            select: "username fullName avatar",
+            select: "userName fullName avatar",
         },
     }
     const comments = await Comment.paginate(filter, options)
     if (!comments?.docs?.length) {
-        throw new apiError(404, "No comments found")
+        return res.status(200).json(
+            new apiResponse(200, {
+                comments: [],
+                totalPages: comments.totalPages || 0,
+                currentPage: comments.page || 1,
+                totalComments: comments.totalDocs || 0,
+            }, "No comments found")
+        )
     }
     return res.status(200).json(
         new apiResponse(200, {
@@ -65,33 +78,38 @@ const getVideoComments = asyncHandler(async (req, res) => {
 const addComment = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     const { content } = req.body
-    const owner = req?.user._id
-    if (!mongoose.Types.ObjectId.isValid(videoId)) {
+    const owner = req?.user?._id
+    if (!isValidObjectId(videoId)) {
         throw new apiError(400, "Invalid video ID.")
     }
-    if(!content?.trim()){
-        throw new apiError(400, "Content is required")
-    }
-    if(!owner){
+    if (!owner) {
         throw new apiError(401, "You must be logged in to add a comment")
     }
-    const videoExists = await Video.exists({ _id: videoId })
-    if (!videoExists) {
+    if (!content?.trim()) {
+        throw new apiError(400, "Content is required")
+    }
+    const video = await Video.findById(videoId)
+    if (!video) {
         throw new apiError(404, "Video not found.")
     }
+    if (!video.isPublished) {
+        throw new apiError(400, "Cannot comment on unpublished video")
+    }
     const comment = await Comment.create({
-        content,
-        video: videoExists?._id,
+        content: content.trim(),
+        video: videoId,
         owner
     })
     const createdComment = await Comment.findById(comment._id)
-    if(!createdComment){
-        throw new apiError(404, "Comment creation failed")
+        .populate("owner", "userName fullName avatar")
+        .populate("video", "title")
+    if (!createdComment) {
+        throw new apiError(500, "Comment creation failed")
     }
-    return res.status(200).json(
+    return res.status(201).json(
         new apiResponse(
-            200,
-            {createdComment},
+            201,
+            { comment: createdComment },
             "Comment added successfully."
         )
     )
@@ -101,62 +119,63 @@ const updateComment = asyncHandler(async (req, res) => {
     const { commentId } = req.params
     const { content } = req.body
     const user = req?.user?._id
-    // Validate comment ID
-    if (!mongoose.Types.ObjectId.isValid(commentId)) {
+    if (!isValidObjectId(commentId)) {
         throw new apiError(400, "Invalid comment ID.")
     }
-    // Check authentication
     if (!user) {
         throw new apiError(401, "You must be logged in to edit a comment.")
     }
-    // Fetch the comment
+    if (!content?.trim()) {
+        throw new apiError(400, "Content is required to update the comment.")
+    }
     const comment = await Comment.findById(commentId)
     if (!comment) {
         throw new apiError(404, "Comment not found.")
     }
-    // Check ownership
     if (comment.owner.toString() !== user.toString()) {
         throw new apiError(403, "You are not authorized to edit this comment.")
     }
-    // Validate new content
-    if (!content?.trim()) {
-        throw new apiError(400, "Content is required to update the comment.")
+    const updatedComment = await Comment.findByIdAndUpdate(
+        commentId,
+        { content: content.trim() },
+        { new: true }
+    ).populate("owner", "userName fullName avatar")
+     .populate("video", "title")
+    if (!updatedComment) {
+        throw new apiError(500, "Failed to update comment")
     }
-    // Update comment
-    comment.content = content
-    await comment.save()
-
     return res.status(200).json(
-        new apiResponse(200, comment, "Comment updated successfully.")
+        new apiResponse(200, { comment: updatedComment }, "Comment updated successfully.")
     )
 })
 
 const deleteComment = asyncHandler(async (req, res) => {
     const { commentId, videoId } = req.params
     const user = req?.user?._id
-    // Validate comment ID
-    if (!mongoose.Types.ObjectId.isValid(commentId) || !mongoose.Types.ObjectId.isValid(videoId)) {
+    if (!isValidObjectId(commentId) || !isValidObjectId(videoId)) {
         throw new apiError(400, "Invalid comment ID or video ID.")
     }
-    // Check authentication
     if (!user) {
         throw new apiError(401, "You must be logged in to delete a comment.")
     }
-    // Fetch the comment
-    const comment = await Comment.findById(commentId)
+    const [comment, video] = await Promise.all([
+        Comment.findById(commentId),
+        Video.findById(videoId)
+    ])
     if (!comment) {
         throw new apiError(404, "Comment not found.")
     }
-    // Check ownership either video owner or comment owner can detelete the comment
-    const video = await Video.findById( videoId )
-    if (comment.owner.toString() !== user.toString() || video.owner.toString() !== user.toString()) {
+    if (!video) {
+        throw new apiError(404, "Video not found.")
+    }
+    const isCommentOwner = comment.owner.toString() === user.toString()
+    const isVideoOwner = video.owner.toString() === user.toString()
+    if (!isCommentOwner && !isVideoOwner) {
         throw new apiError(403, "You are not authorized to delete this comment.")
     }
-    // Update comment
     await comment.deleteOne()
-
     return res.status(200).json(
-        new apiResponse(200, comment, "Comment deleted successfully.")
+        new apiResponse(200, {}, "Comment deleted successfully.")
     )
 })
 

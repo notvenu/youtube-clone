@@ -2,7 +2,7 @@ import { isValidObjectId } from "mongoose"
 import { Like } from "../models/like.model.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
-import { asyncHandler } from "../utils/asyncHandler.js"
+import { asyncHandler } from "../utils/asyncHandler.util.js"
 
 const toggleVideoLike = asyncHandler(async (req, res) => {
     const { videoId } = req.params
@@ -68,9 +68,4 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
     }
 })
 
-export {
-    toggleCommentLike,
-    toggleTweetLike,
-    toggleVideoLike,
-    getLikedVideos
-}
+export { toggleCommentLike, toggleTweetLike, toggleVideoLike }
