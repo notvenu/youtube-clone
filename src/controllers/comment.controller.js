@@ -1,8 +1,8 @@
 import mongoose, { isValidObjectId } from "mongoose"
 import { Video } from "../models/video.model.js"
 import { Comment } from "../models/comment.model.js"
-import { apiError } from "../utils/ApiError.js"
-import { apiResponse } from "../utils/ApiResponse.js"
+import { apiError } from "../utils/apiError.util.js"
+import { apiResponse } from "../utils/apiResponse.util.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { apiError } from "../utils/apiError.util.js"
 
@@ -130,7 +130,6 @@ const updateComment = asyncHandler(async (req, res) => {
         new apiResponse(200, comment, "Comment updated successfully.")
     )
 })
-
 
 const deleteComment = asyncHandler(async (req, res) => {
     const { commentId, videoId } = req.params
