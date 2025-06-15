@@ -1,4 +1,4 @@
-import { isValidObjectId, set } from "mongoose"
+import mongoose, { isValidObjectId } from "mongoose"
 import { Video } from "../models/video.model.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/ApiResponse.js"
@@ -92,15 +92,200 @@ const uploadAVideo = asyncHandler(async (req, res) => {
 })
 
 const getVideoById = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
-    const video = await Video.findById(videoId)
-    if (!video) {
-        throw new apiError(404, "Video not found")
+    const { videoId } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(videoId)) {
+        throw new apiError(400, "Invalid video ID");
     }
-    return res.status(200).json(
-        new apiResponse(200, video, "Video fetched successfully")
+
+    // Convert videoId to ObjectId for aggregation
+    const videoObjectId = new mongoose.Types.ObjectId(videoId);
+
+    // Increment views and fetch video with owner details
+    const video = await Video.findByIdAndUpdate(
+        videoId,
+        { $inc: { views: 1 } },
+        { new: true }
     )
-})
+    .populate("owner", "username fullName avatar")
+    .select("title description thumbnail videoFile views owner");
+
+    if (!video) {
+        throw new apiError(404, "Video not found.");
+    }
+
+    // Get likes, dislikes count and check if current user liked/disliked
+    const videoStats = await Video.aggregate([
+        {
+            $match: {
+                _id: videoObjectId
+            }
+        },
+        {
+            $lookup: {
+                from: "likes",
+                localField: "_id",
+                foreignField: "video",
+                as: "likes",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "likedby",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1,
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $lookup: {
+                from: "dislikes",
+                localField: "_id",
+                foreignField: "video",
+                as: "dislikes",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "dislikedby",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1,
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $lookup: {
+                from: "comments",
+                localField: "_id",
+                foreignField: "video",
+                as: "comments",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "commentOwner",
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1,
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $addFields: {
+                            owner: { $first: "$commentOwner" }
+                        }
+                    },
+                    {
+                        $project: {
+                            content: 1,
+                            owner: 1,
+                            createdAt: 1,
+                            updatedAt: 1
+                        }
+                    },
+                    {
+                        $sort: { createdAt: -1 }
+                    }
+                ]
+            }
+        },
+        {
+            $addFields: {
+                likesCount: { $size: "$likes" },
+                dislikesCount: { $size: "$dislikes" },
+                commentsCount: { $size: "$comments" },
+                isLiked: {
+                    $cond: {
+                        if: { 
+                            $in: [
+                                req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : null, 
+                                "$likes.likedby"
+                            ] 
+                        },
+                        then: true,
+                        else: false
+                    }
+                },
+                isDisliked: {
+                    $cond: {
+                        if: { 
+                            $in: [
+                                req.user?._id ? new mongoose.Types.ObjectId(req.user._id) : null, 
+                                "$dislikes.dislikedby"
+                            ] 
+                        },
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+        {
+            $project: {
+                title: 1,
+                description: 1,
+                thumbnail: 1,
+                videoFile: 1,
+                views: 1,
+                owner: 1,
+                likesCount: 1,
+                dislikesCount: 1,
+                commentsCount: 1,
+                comments: 1,
+                isLiked: 1,
+                isDisliked: 1
+            }
+        }
+    ]);
+
+    if (!videoStats || videoStats.length === 0) {
+        throw new apiError(404, "Video not found.");
+    }
+
+    // Combine the video data with stats
+    const videoWithStats = {
+        ...video.toObject(),
+        likesCount: videoStats[0].likesCount,
+        dislikesCount: videoStats[0].dislikesCount,
+        commentsCount: videoStats[0].commentsCount,
+        comments: videoStats[0].comments,
+        isLiked: videoStats[0].isLiked,
+        isDisliked: videoStats[0].isDisliked
+    };
+
+    return res.status(200).json(
+        new apiResponse(200, videoWithStats, "Video fetched successfully")
+    );
+});
 
 const updateVideoDetails = asyncHandler(async (req, res) => {
     const { videoId } = req.params
@@ -163,7 +348,6 @@ const updateVideoThumbnail = asyncHandler(async (req, res) => {
         )
     )
 })
-
 
 const deleteVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
