@@ -517,8 +517,17 @@ const getUserWatchHistory =  asyncHandler(async (req, res) => {
             }
         }
     ])
+    if(user[0].watchHistory.length === 0){
+        return res.status(200).json(
+            new apiResponse (
+                200,
+                {},
+                "User has no watch history."
+            )
+        )
+    }
     return res.status(200).json(
-        new apiResponse(200, user[0]?.watchHistory || [], "User watch history fetched successfully.")
+        new apiResponse(200, user[0]?.watchHistory, "User watch history fetched successfully.")
     )
 })
 
@@ -566,6 +575,15 @@ const getLikedVideos = asyncHandler(async (req, res) => {
                 }
             }
         ])
+    if(user[0].watchHistory.length === 0){
+        return res.status(200).json(
+            new apiResponse (
+                200,
+                {},
+                "User has no liked videos."
+            )
+        )
+    }
     return res.status(200).json(
         new apiResponse(200, user[0]?.likedVideos || [], "User liked history fetched successfully.")
     )
