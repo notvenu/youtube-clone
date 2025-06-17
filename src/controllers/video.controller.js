@@ -5,6 +5,7 @@ import { apiResponse } from "../utils/apiResponse.util.js"
 import { asyncHandler } from "../utils/asyncHandler.util.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.util.js"
 import { deleteFromCloudinary } from "../utils/cloudinary.util.js"
+import { formatDuration } from "../utils/formatDuration.util.js"
 
 const getAllVideos = asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
@@ -102,7 +103,7 @@ const uploadAVideo = asyncHandler(async (req, res) => {
         description: description || "",
         videoFile: videoFile.url,
         thumbnail: thumbnail.url,
-        duration: videoFile.duration,
+        duration: formatDuration(videoFile.duration),
         owner: req.user._id
     })
     const createdVideo = await Video.findById(video._id).select(
@@ -281,6 +282,7 @@ const getVideoById = asyncHandler(async (req, res) => {
                 videoFile: 1,
                 views: 1,
                 owner: 1,
+                duration: 1,
                 likesCount: 1,
                 dislikesCount: 1,
                 commentsCount: 1,
