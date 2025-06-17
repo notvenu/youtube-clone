@@ -44,22 +44,21 @@ const getAllVideos = asyncHandler(async (req, res) => {
                 from: "users",
                 localField: "owner",
                 foreignField: "_id",
-                as: "owner",
-                pipeline: [
-                    {
-                        $project: {
-                            username: 1,
-                            fullName: 1,
-                            avatar: 1
-                        }
-                    }
-                ]
+                as: "ownerDetails"
             }
         },
         {
             $addFields: {
-                owner: { $first: "$owner" }
+                owner: {
+                    _id: { $arrayElemAt: ["$ownerDetails._id", 0] },
+                    userName: { $arrayElemAt: ["$ownerDetails.userName", 0] },
+                    fullName: { $arrayElemAt: ["$ownerDetails.fullName", 0] },
+                    avatar: { $arrayElemAt: ["$ownerDetails.avatar", 0] }
+                }
             }
+        },
+        {
+            $unset: "ownerDetails"
         }
     ])
     const videos = await Video.aggregatePaginate(aggregate, options)
@@ -122,7 +121,14 @@ const getVideoById = asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(videoId)) {
         throw new apiError(400, "Invalid video ID");
     }
-    const videoObjectId = new mongoose.Types.ObjectId(videoId);
+    const videoObjectId = new mongoose.Types.ObjectId(videoId)
+    const checkvideo = await Video.findById(videoId)
+    if(!checkvideo){
+        throw new apiError(404, "Video not found.")
+    }
+    if(!checkvideo.isPublished){
+        throw new apiError(404, "Video is not published yet.")
+    }
     const video = await Video.findByIdAndUpdate(
         videoId,
         { $inc: { views: 1 } },
@@ -280,7 +286,9 @@ const getVideoById = asyncHandler(async (req, res) => {
                 commentsCount: 1,
                 comments: 1,
                 isLiked: 1,
-                isDisliked: 1
+                isDisliked: 1,
+                isPublished: 1,
+                createdAt: 1,
             }
         }
     ]);
@@ -294,7 +302,9 @@ const getVideoById = asyncHandler(async (req, res) => {
         commentsCount: videoStats[0].commentsCount,
         comments: videoStats[0].comments,
         isLiked: videoStats[0].isLiked,
-        isDisliked: videoStats[0].isDisliked
+        isDisliked: videoStats[0].isDisliked,
+        isPublished: videoStats[0].isPublished,
+        createdAt: videoStats[0].createdAt
     };
     return res.status(200).json(
         new apiResponse(200, videoWithStats, "Video fetched successfully")
