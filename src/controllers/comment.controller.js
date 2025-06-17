@@ -12,13 +12,13 @@ const getVideoComments = asyncHandler(async (req, res) => {
         if (!isValidObjectId(videoId)) {
             throw new apiError(400, "Invalid video ID")
         }
-        filter.video = videoId
+        filter.video = new mongoose.Types.ObjectId(videoId)
     }
     if (userId) {
         if (!isValidObjectId(userId)) {
             throw new apiError(400, "Invalid user ID")
         }
-        filter.owner = userId
+        filter.owner = new mongoose.Types.ObjectId(userId)
     }
     if (query) {
         filter.content = { $regex: query, $options: "i" }
@@ -49,12 +49,48 @@ const getVideoComments = asyncHandler(async (req, res) => {
         page: pageNum,
         limit: limitNum,
         sort,
-        populate: {
-            path: "owner",
-            select: "userName fullName avatar",
-        },
     }
-    const comments = await Comment.paginate(filter, options)
+    const aggregate = Comment.aggregate([
+        { $match: filter },
+        {
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "ownerDetails",
+                pipeline: [
+                    {
+                        $project: {
+                            username: 1,
+                            fullName: 1,
+                            avatar: 1
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $addFields: {
+                owner: { $first: "$ownerDetails" }
+            }
+        },
+        {
+            $unset: "ownerDetails"
+        },
+        {
+            $project: {
+                content: 1,
+                video: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                "owner._id": 1,
+                "owner.userName": 1,
+                "owner.fullName": 1,
+                "owner.avatar": 1
+            }
+        }
+    ])
+    const comments = await Comment.aggregatePaginate(aggregate, options)
     if (!comments?.docs?.length) {
         return res.status(200).json(
             new apiResponse(200, {
@@ -62,6 +98,8 @@ const getVideoComments = asyncHandler(async (req, res) => {
                 totalPages: comments.totalPages || 0,
                 currentPage: comments.page || 1,
                 totalComments: comments.totalDocs || 0,
+                hasNext: false,
+                hasPrev: false
             }, "No comments found")
         )
     }
@@ -71,6 +109,8 @@ const getVideoComments = asyncHandler(async (req, res) => {
             totalPages: comments.totalPages,
             currentPage: comments.page,
             totalComments: comments.totalDocs,
+            hasNext: comments.hasNextPage,
+            hasPrev: comments.hasPrevPage
         }, "Comments fetched successfully")
     )
 })
