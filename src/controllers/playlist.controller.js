@@ -6,7 +6,6 @@ import { asyncHandler} from "../utils/asyncHandler.util.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
 
-
 const createPlaylist = asyncHandler(async (req, res) => {
     const { name, description } = req.body
     if(!name?.trim()){
@@ -40,12 +39,12 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
     if(!user){
         throw new apiError(401, "Unauthorized. Please login to view playlists.")
     }
-    if(user !== loggedInUser.toString()){
+    if(user.toString() !== loggedInUser?._id.toString()){
         throw new apiError(404, "You can only view your own playlists.")
     }
     const playlists = await Playlist.find({
         owner: userId
-    }).populate("owner", "fullName userName avatar")
+    }).populate("owner", "fullName userName avatar").populate("videos", "title description thumbnail views duration isPublished")
     if(playlists.length === 0){
         return res.status(200).json(
             new apiResponse(
@@ -85,7 +84,7 @@ const getPlaylistById = asyncHandler(async (req, res) => {
 })
 
 const addVideoToPlaylist = asyncHandler(async (req, res) => {
-    const { playlistId, videoId } = req.params
+    const { videoId, playlistId } = req.params
     if(!isValidObjectId(playlistId) || !isValidObjectId(videoId)){
         throw new apiError(400, "Invalid playlist ID or video ID.")
     }
@@ -97,7 +96,7 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
     if(!playlist){
         throw new apiError(404, "Playlist not found")
     }
-    if(!(playlist.owner.toString() === user.toString())){
+    if(playlist.owner.toString() !== user.toString()){
         throw new apiError(403, "User not authorized to add videos to this playlist.")
     }
     const video = await Video.findById(videoId)
@@ -107,7 +106,7 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
     if(!video.isPublished){
         throw new apiError(400, "Cannot add unpublished video to playlist")
     }
-    if(playlist.videos.includes(videoId)){
+    if(playlist.videos.includes(video?._id)){
         throw new apiError(400, "Video is already in the playlist")
     }
     playlist.videos.push(videoId)
