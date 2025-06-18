@@ -1,5 +1,6 @@
 import mongoose, { isValidObjectId } from "mongoose"
 import { Tweet } from "../models/tweet.model.js"
+import { User } from "../models/user.model.js"
 import { apiError } from "../utils/apiError.util.js"
 import { apiResponse } from "../utils/apiResponse.util.js"
 import {asyncHandler} from "../utils/asyncHandler.util.js"
@@ -31,7 +32,7 @@ const getUserTweets = asyncHandler(async (req, res) => {
     if(!user){
         throw new apiError(400, "Invalid user ID")
     }
-    const tweets = Tweet.aggregate([
+    const tweets = await Tweet.aggregate([
         {
             $match: {
                 owner: new mongoose.Types.ObjectId(user)
@@ -50,7 +51,7 @@ const getUserTweets = asyncHandler(async (req, res) => {
         },
         {
             $project: {
-                contents: 1,
+                content: 1,
                 
             }
         },
@@ -66,8 +67,8 @@ const getUserTweets = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new apiResponse(
             200,
-            {tweets},
-            "Tweets for this user fetched successfully."
+            "Tweets for this user fetched successfully.",
+            { tweets }
         )
     )
 })
@@ -77,7 +78,11 @@ const getChannelTweets = asyncHandler(async (req, res) => {
     if(!isValidObjectId(channelId)){
         throw new apiError(400, "Invalid channel ID")
     }
-    const tweets = Tweet.aggregate([
+    const channelExists = await User.findById(channelId)
+    if (!channelExists) {
+        throw new apiError(404, "Channel not found")
+    }
+    const tweets = await Tweet.aggregate([
         {
             $match: {
                 owner: new mongoose.Types.ObjectId(channelId)
@@ -96,8 +101,12 @@ const getChannelTweets = asyncHandler(async (req, res) => {
         },
         {
             $project: {
-                contents: 1,
-                
+                content: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                "channel.userName": 1,
+                "channel.fullName": 1,
+                "channel.avatar": 1
             }
         },
         {
@@ -106,13 +115,18 @@ const getChannelTweets = asyncHandler(async (req, res) => {
             }
         }
     ])
-    if(!tweets || tweets.length === 0) {
-        throw new apiError(404, "No Tweets found for this channel.")
-    }
     return res.status(200).json(
         new apiResponse(
             200,
-            {tweets},
+            { 
+                tweets: tweets || [],
+                tweetCount: tweets ? tweets.length : 0,
+                channel: {
+                    id: channelExists._id,
+                    username: channelExists.userName,
+                    fullName: channelExists.fullName
+                }
+            },
             "Tweets for this channel fetched successfully."
         )
     )
