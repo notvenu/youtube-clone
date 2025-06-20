@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken"
 import mongoose from "mongoose"
 
 //Generate Access and Refresh Token
-const generateAccessAndRefereshTokens = async(userId) =>{
+const generateAccessAndRefereshTokens = async(userId) =>{   
     try {
         const user = await User.findById(userId)
         if (!user) {
@@ -96,9 +96,11 @@ const registerUser = asyncHandler(async (req, res) => {
 //User Login
 const loginUser = asyncHandler(async (req, res) =>{
     const {email, userName, password} = req.body
-    console.log(email);
     if (!(userName || email)) {
-        throw new apiError(400, "username or email is required")
+        throw new apiError(400, "Username or email is required.")
+    }
+    if(!password){
+        throw new apiError(400, "Password is required to login.")
     }
     const user = await User.findOne({
         $or: [{userName}, {email}]
@@ -110,7 +112,7 @@ const loginUser = asyncHandler(async (req, res) =>{
    if (!isPasswordValid) {
     throw new apiError(401, "Invalid user credentials")
     }
-   const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
+    const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
     const options = {
         httpOnly: true,
@@ -157,7 +159,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 const refreshAccessToken = asyncHandler(async (req, res) => {
     const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
     if(!incomingRefreshToken){
-        throw new apiError(401, "Unauthorized Request")
+        throw new apiError(401, "Unauthorized Request") 
     }
     try {
         const decodedToken = jwt.verify(
@@ -240,7 +242,6 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     if( !(fullName || email || userName) ) {
         throw new apiError(400, "At least one field is required to update")
     }
-
     // Check if email or username already exists (if they're being updated)
     if (email && email !== req.user.email) {
         const emailExists = await User.findOne({ email })
@@ -248,7 +249,6 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
             throw new apiError(409, "Email already exists")
         }
     }
-    
     if (userName && userName !== req.user.userName) {
         const userNameExists = await User.findOne({ userName })
         if (userNameExists) {
@@ -410,7 +410,7 @@ const deleteUserCoverImage = asyncHandler(async(req, res) => {
 
 //Get user profile , subscriberscount and subscribedto count
 const getUserChannelProfile = asyncHandler(async (req, res) => {
-    const {userName} = req.params
+    const { userName } = req.params
     if(!userName?.trim()){
         throw new apiError(400, "Username is required")
     }
@@ -418,7 +418,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         {
             $match: {
                 userName: userName?.toLowerCase()
-            }
+            }   
         },
         {
             $lookup: {
